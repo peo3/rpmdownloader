@@ -96,7 +96,7 @@ class DownloaderFedoraArchives < Downloader
 	BASE_URL = "http://archives.fedoraproject.org/pub/archive/fedora/linux"
 	NAME = 'archives.fedoraproject.org'
 	attr_reader :NAME
-	SUPPORTED_ARCHS = ['i386', 'x86_64', 'ppc', 'ppc64']
+	SUPPORTED_ARCHS = ['i386', 'x86_64', 'ppc', 'ppc64', 'source']
 
 	def initialize( package_name, distro, arch )
 		super
@@ -110,28 +110,39 @@ class DownloaderFedoraArchives < Downloader
 		else
 			raise 'Cannot get version number'
 		end
+
+		if arch == 'src'
+			@arch = 'source'
+		end
 	end
 
 	def query
-		if @arch.nil?
-			archs = SUPPORTED_ARCHS
-		else
-			archs = [@arch]
-		end
-
 		query_urls = []
-		archs.each do |arch|
+		if @arch == 'source'
+			url = BASE_URL + "/releases/%d/Everything/source/SRPMS/" % [@version]
 			if [9].include?(@version)
-				query_urls << BASE_URL + "/releases/%d/Everything/%s.newkey/os/Packages/" % [@version, arch]
-			else
-				query_urls << BASE_URL + "/releases/%d/Everything/%s/os/Packages/" % [@version, arch]
+				url.gsub!(/#{@arch}/, "#{@arch}.newkey")
 			end
+			query_urls << url
 
+			url = BASE_URL + "/updates/%d/SRPMS/" % [@version]
 			if [8, 9].include?(@version)
-				query_urls << BASE_URL + "/updates/%d/%s.newkey/" % [@version, arch]
-			else
-				query_urls << BASE_URL + "/updates/%d/%s/" % [@version, arch]
+				url.gsub!(/SRPMS/, "SRPMS.newkey")
 			end
+			query_urls << url
+		else
+			url = BASE_URL + "/releases/%d/Everything/%s/os/Packages/" % \
+				[@version, @arch]
+			if [9].include?(@version)
+				url.gsub!(/#{@arch}/, "#{@arch}.newkey")
+			end
+			query_urls << url
+
+			url = BASE_URL + "/updates/%d/%s/" % [@version, @arch]
+			if [8, 9].include?(@version)
+				url.gsub!(/#{@arch}/, "#{@arch}.newkey")
+			end
+			query_urls << url
 		end
 		#p query_urls
 
