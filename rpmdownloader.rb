@@ -4,6 +4,8 @@ require 'open-uri'
 require 'rubygems'
 gem 'nokogiri'
 require 'nokogiri'
+require 'uri'
+require 'cgi'
 
 if not system('which wget > /dev/null 2>&1')
 	puts "wget not found"
@@ -16,6 +18,42 @@ Signal.trap(:INT) do
 end
 
 STDOUT.sync = true
+
+$DIR = ENV['HOME'] + '/.rpmdownloader'
+Dir.mkdir($DIR) unless FileTest.directory?($DIR)
+
+class Cache
+	DIR = $DIR + '/cache'
+	def initialize
+		@cache = Hash.new(false)
+
+		Dir.mkdir(DIR) unless FileTest.directory?(DIR)
+
+		self._read_stored_caches()
+	end
+
+	def _read_stored_caches
+		Dir.foreach(DIR) do |file|
+			next if file =~ /^\.{1,2}$/
+
+			#printf("reading cache: %s\n", file)
+			@cache[file] = IO.read("%s/%s"%[DIR,file])
+		end
+	end
+
+	def []( url )
+		@cache[CGI.escape(url)]
+	end
+
+	def []=( url, content )
+		file = '%s/%s' % [DIR, CGI.escape(url)]
+		#printf("storing a cache: %s\n", file)
+		File.open(file, 'w') do |f|
+			f.write(content)
+		end
+		@cache[CGI.escape(url)] = content
+	end
+end
 
 class Downloader
 	def initialize( package_name, distro, arch )
@@ -114,6 +152,8 @@ class DownloaderFedoraArchives < Downloader
 		if arch == 'src'
 			@arch = 'source'
 		end
+
+		@cache = Cache.new()
 	end
 
 	def query
@@ -148,7 +188,16 @@ class DownloaderFedoraArchives < Downloader
 
 		rpm_urls = []
 		query_urls.each do |url|
-			html = open(url)
+			#p "querying...: " + url
+			if @cache[url]
+				# The cached content of archives will never change
+				html = @cache[url]
+			else
+				open(url) do |f|
+					html = f.read()
+				end
+				@cache[url] = html
+			end
 			doc = Nokogiri::HTML(html)
 			found_pkgs = doc.css('a').map{|a|a.attributes['href'].to_s}.delete_if do |href|
 				not href[/^#{@package_name}-[0-9]/]
@@ -176,8 +225,10 @@ repos.each do |repo|
 	print "Querying to %s..." % [downloader.class::NAME]
 	begin
 		rpm_urls = downloader.query()
-	rescue
-		puts 'Query failed. Trying a next repository.'
+	rescue Exception => e
+		#p e
+		#print e.backtrace.join("\n")
+		puts "Query failed. Trying a next repository."
 		next
 	end
 	puts 'done.'
